@@ -1,0 +1,25 @@
+# Configuración de ejemplo para el proyecto fras.
+# Copia este archivo a config.yaml y ajusta los valores según tu caso.
+
+project:
+  name: fras
+  random_seed: 42
+
+paths:
+  raw_data: data/raw
+  processed_data: data/processed
+  models: models
+  reports: reports/figures
+
+data:
+  train_file: null
+  test_file: null
+  target_column: null
+
+model:
+  name: null
+  hyperparameters: {}
+
+training:
+  test_size: 0.2
+  cross_validation_folds: 5
