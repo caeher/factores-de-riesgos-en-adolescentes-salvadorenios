@@ -31,6 +31,7 @@ from sklearn.pipeline import Pipeline
 from xgboost import XGBClassifier
 
 from config import get_random_seed
+from labels import get_label
 from models.predict import save_model
 
 
@@ -49,6 +50,24 @@ class RegressionResults:
     y_test: np.ndarray = field(repr=False)
     y_pred: np.ndarray = field(repr=False)
     best_model: Any = field(repr=False, default=None)
+
+
+@dataclass
+class TunedModelResults:
+    """Resultados de evaluación en test de un modelo con hiperparámetros ajustados."""
+
+    task: str
+    model_name: str
+    best_params: dict[str, Any]
+    rmse: float | None = None
+    r2: float | None = None
+    f1_minority: float | None = None
+    auc_roc: float | None = None
+    accuracy: float | None = None
+    confusion: np.ndarray | None = None
+    classification_report: str | None = None
+    best_model: Any = field(repr=False, default=None)
+    feature_importances: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -338,7 +357,7 @@ def evaluate_classification(
             pipeline, X_clean, y_clean, cv=cv_folds, scoring="roc_auc"
         )
 
-        importances = extract_feature_importances(pipeline, X_clean.columns.tolist())
+        importances = extract_feature_importances(pipeline)
 
         results.append(
             ClassificationResults(
@@ -365,9 +384,16 @@ def evaluate_classification(
     return results
 
 
+def _get_transformed_feature_names(pipeline: Pipeline | ImbPipeline) -> list[str]:
+    """Obtiene nombres de features tras preprocesamiento (incluye One-Hot)."""
+    preprocessor = pipeline.named_steps["preprocessor"]
+    if hasattr(preprocessor, "get_feature_names_out"):
+        return list(preprocessor.get_feature_names_out())
+    return []
+
+
 def extract_feature_importances(
     pipeline: Pipeline | ImbPipeline,
-    feature_names: list[str],
 ) -> dict[str, float]:
     """Extrae importancia de características del modelo entrenado."""
     model = pipeline.named_steps["model"]
@@ -378,7 +404,8 @@ def extract_feature_importances(
     else:
         return {}
 
-    if len(importances) != len(feature_names):
+    feature_names = _get_transformed_feature_names(pipeline)
+    if not feature_names or len(importances) != len(feature_names):
         return {}
 
     pairs = sorted(
@@ -387,6 +414,96 @@ def extract_feature_importances(
         reverse=True,
     )
     return {name: float(imp) for name, imp in pairs[:15]}
+
+
+def evaluate_tuned_regression(
+    X: pd.DataFrame,
+    y: pd.Series,
+    preprocessor: Any,
+    random_state: int,
+    test_size: float = 0.2,
+) -> TunedModelResults:
+    """Ajusta hiperparámetros y evalúa Random Forest en conjunto de test."""
+    mask = y.notna()
+    X_clean = X.loc[mask]
+    y_clean = y.loc[mask]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_clean, y_clean, test_size=test_size, random_state=random_state
+    )
+    tuned_model, best_params = tune_regression_model(
+        X_train, y_train, clone(preprocessor), random_state
+    )
+    y_pred = tuned_model.predict(X_test)
+    rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
+    r2 = float(r2_score(y_test, y_pred))
+
+    return TunedModelResults(
+        task="regression",
+        model_name="random_forest_tuned",
+        best_params=best_params,
+        rmse=rmse,
+        r2=r2,
+        best_model=tuned_model,
+        feature_importances=extract_feature_importances(tuned_model),
+    )
+
+
+def evaluate_tuned_classification(
+    X: pd.DataFrame,
+    y: pd.Series,
+    preprocessor: Any,
+    random_state: int,
+    test_size: float = 0.2,
+    use_smote: bool = True,
+) -> TunedModelResults:
+    """Ajusta hiperparámetros y evalúa Random Forest+SMOTE en conjunto de test."""
+    mask = y.notna()
+    X_clean = X.loc[mask]
+    y_clean = y.loc[mask].astype(int)
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X_clean,
+        y_clean,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=y_clean,
+    )
+    tuned_model, best_params = tune_classification_model(
+        X_train, y_train, clone(preprocessor), random_state, use_smote=use_smote
+    )
+    y_pred = tuned_model.predict(X_test)
+    y_proba = tuned_model.predict_proba(X_test)[:, 1]
+    minority_label = int(y_clean.value_counts().idxmin())
+
+    return TunedModelResults(
+        task="classification",
+        model_name="random_forest_smote_tuned",
+        best_params=best_params,
+        f1_minority=float(f1_score(y_test, y_pred, pos_label=minority_label)),
+        auc_roc=float(roc_auc_score(y_test, y_proba)),
+        accuracy=float((y_pred == y_test).mean()),
+        confusion=confusion_matrix(y_test, y_pred),
+        classification_report=classification_report(y_test, y_pred, digits=3),
+        best_model=tuned_model,
+        feature_importances=extract_feature_importances(tuned_model),
+    )
+
+
+def format_feature_importances_for_report(
+    importances: dict[str, float],
+) -> dict[str, float]:
+    """Traduce nombres técnicos de features a etiquetas legibles para el informe."""
+    translated: dict[str, float] = {}
+    for name, value in importances.items():
+        # One-Hot: num__QN6 o cat__Q1_3
+        base = name.split("__", 1)[-1] if "__" in name else name
+        base_var = base.split("_")[0] if base.startswith("Q") else base
+        label = get_label(base_var)
+        if base != base_var:
+            label = f"{label} ({base})"
+        translated[label] = value
+    return translated
 
 
 def select_best_regression(results: list[RegressionResults]) -> RegressionResults:

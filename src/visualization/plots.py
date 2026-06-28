@@ -10,6 +10,7 @@ import pandas as pd
 import seaborn as sns
 
 from config import TARGET_IMC, TARGET_MENTAL_HEALTH
+from labels import AGE_LABELS, SEX_LABELS, get_label
 
 
 def set_plot_style() -> None:
@@ -71,14 +72,15 @@ def plot_age_distribution(
     output_path: Path | None = None,
 ) -> plt.Figure:
     """Distribución de edades de los adolescentes encuestados (Q1)."""
-    age_labels = {
-        1: "≤13",
-        2: "14",
-        3: "15",
-        4: "16",
-        5: "≥17",
-    }
-    counts = df["Q1"].map(age_labels).value_counts().reindex(age_labels.values())
+    age_order = list(AGE_LABELS.values())
+    counts = (
+        df["Q1"]
+        .map(AGE_LABELS)
+        .value_counts()
+        .reindex(age_order)
+        .fillna(0)
+        .astype(int)
+    )
     set_plot_style()
     fig, ax = plt.subplots()
     counts.plot(kind="bar", ax=ax, color="#A23B72")
@@ -114,7 +116,7 @@ def plot_mental_health_prevalence(
     labels = ["Sin riesgo (0)", "Riesgo (1)"]
     fig, ax = plt.subplots()
     bars = ax.bar(labels, [counts.get(0, 0), counts.get(1, 0)], color=["#4CAF50", "#E53935"])
-    ax.set_title("Prevalencia de riesgo en salud mental (ideación suicida seria)")
+    ax.set_title("Prevalencia de riesgo en salud mental (ideación suicida — QN24)")
     ax.set_ylabel("Número de estudiantes")
     for bar in bars:
         height = bar.get_height()
@@ -202,10 +204,13 @@ def plot_feature_importance(
     output_path: Path | None = None,
     title: str = "Importancia de características (Top 15)",
     top_n: int = 15,
+    use_spanish_labels: bool = True,
 ) -> plt.Figure:
     """Gráfico de barras horizontales de feature importance."""
     set_plot_style()
     items = list(importances.items())[:top_n]
+    if use_spanish_labels:
+        items = [(get_label(name), value) for name, value in items]
     names = [i[0] for i in reversed(items)]
     values = [i[1] for i in reversed(items)]
 
@@ -213,6 +218,84 @@ def plot_feature_importance(
     ax.barh(names, values, color="#F18F01")
     ax.set_title(title)
     ax.set_xlabel("Importancia relativa")
+    _save_figure(fig, output_path)
+    return fig
+
+
+def plot_bmi_by_sex(
+    df: pd.DataFrame,
+    output_path: Path | None = None,
+) -> plt.Figure:
+    """Distribución del IMC segmentada por sexo (análisis bivariado)."""
+    set_plot_style()
+    plot_df = df[["Q2", TARGET_IMC]].dropna()
+    plot_df = plot_df.copy()
+    plot_df["Sexo"] = plot_df["Q2"].map(SEX_LABELS)
+
+    fig, ax = plt.subplots()
+    sns.boxplot(data=plot_df, x="Sexo", y=TARGET_IMC, hue="Sexo", palette="Set2", ax=ax, legend=False)
+    ax.set_title("IMC por sexo — adolescentes GSHS El Salvador 2013")
+    ax.set_xlabel("Sexo")
+    ax.set_ylabel("IMC (kg/m²)")
+    _save_figure(fig, output_path)
+    return fig
+
+
+def plot_mental_health_by_sex(
+    df: pd.DataFrame,
+    output_path: Path | None = None,
+) -> plt.Figure:
+    """Prevalencia de riesgo en salud mental por sexo."""
+    set_plot_style()
+    plot_df = df[["Q2", TARGET_MENTAL_HEALTH]].dropna()
+    plot_df = plot_df.copy()
+    plot_df["Sexo"] = plot_df["Q2"].map(SEX_LABELS)
+    prevalence = (
+        plot_df.groupby("Sexo", observed=True)[TARGET_MENTAL_HEALTH]
+        .mean()
+        .reindex(SEX_LABELS.values())
+    )
+
+    fig, ax = plt.subplots()
+    bars = ax.bar(
+        prevalence.index.astype(str),
+        prevalence.values * 100,
+        color=["#1565C0", "#E91E63"],
+    )
+    ax.set_title("Prevalencia de riesgo en salud mental por sexo")
+    ax.set_xlabel("Sexo")
+    ax.set_ylabel("Prevalencia (%)")
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(
+            f"{height:.1f}%",
+            xy=(bar.get_x() + bar.get_width() / 2, height),
+            ha="center",
+            va="bottom",
+        )
+    _save_figure(fig, output_path)
+    return fig
+
+
+def plot_risk_factor_heatmap(
+    df: pd.DataFrame,
+    risk_columns: list[str],
+    output_path: Path | None = None,
+) -> plt.Figure:
+    """Correlaciones bivariadas entre factores de riesgo y el target de salud mental."""
+    set_plot_style()
+    cols = [c for c in risk_columns if c in df.columns]
+    cols_with_target = cols + [TARGET_MENTAL_HEALTH]
+    corr = df[cols_with_target].corr(numeric_only=True)
+
+    labels = [get_label(c) if c != TARGET_MENTAL_HEALTH else "Riesgo salud mental" for c in corr.columns]
+    corr.index = labels
+    corr.columns = labels
+
+    fig, ax = plt.subplots(figsize=(12, 10))
+    sns.heatmap(corr, cmap="coolwarm", center=0, ax=ax, linewidths=0.5, annot=True, fmt=".2f")
+    ax.set_title("Correlaciones: factores de riesgo vs. salud mental")
+    fig.tight_layout()
     _save_figure(fig, output_path)
     return fig
 

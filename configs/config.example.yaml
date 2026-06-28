@@ -15,6 +15,7 @@ data:
   raw_file: SLV2013_Public_Use.csv
   target_imc: IMC
   target_mental_health: Riesgo_Salud_Mental
+  mental_health_target: qn24
 
 model:
   regression:

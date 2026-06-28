@@ -35,9 +35,38 @@ LEAKAGE_COLUMNS = [
 # Variables de diseño muestral (no predictores).
 SURVEY_DESIGN_COLUMNS = ["stratum", "psu"]
 
-# Ideación suicida seria (GSHS Q25 / QN25: 1=Sí, 2=No).
-MENTAL_HEALTH_PRIMARY_COL = "QN25"
-MENTAL_HEALTH_FALLBACK_COL = "QN21"
+# Targets de salud mental (GSHS: 1=Sí, 2=No en recodificaciones QN).
+# QN24: ideación suicida seriamente considerada (enlace V77 del desafío / fact sheet OMS).
+MENTAL_HEALTH_PRIMARY_COL = "QN24"
+# QN22: soledad la mayor parte del tiempo (escenario alternativo documentado).
+MENTAL_HEALTH_ALTERNATIVE_COL = "QN22"
+# Alias legacy para compatibilidad con tests.
+MENTAL_HEALTH_FALLBACK_COL = MENTAL_HEALTH_ALTERNATIVE_COL
+
+# Constructo completo de salud mental — nunca usar como features de clasificación.
+MENTAL_HEALTH_CONSTRUCT = [
+    "QN22",
+    "QN23",
+    "QN24",
+    "QN25",
+    "QN26",
+    "QN27",
+    "Q22",
+    "Q23",
+    "Q24",
+    "Q25",
+    "Q26",
+    "Q27",
+    "qnc2g",  # derivada de preocupación/bullying
+]
+
+# Mapeo de claves de configuración a columnas del dataset.
+MENTAL_HEALTH_TARGET_MAP: dict[str, str] = {
+    "qn24": "QN24",
+    "qn22": "QN22",
+    "qn25": "QN25",
+}
+DEFAULT_MENTAL_HEALTH_TARGET_KEY = "qn24"
 
 # Rango clínico razonable de IMC para adolescentes (filtrado de outliers).
 IMC_MIN = 10.0
@@ -117,3 +146,15 @@ def get_qn_columns() -> list[str]:
 def get_excluded_feature_columns() -> list[str]:
     """Columnas que nunca deben usarse como features."""
     return LEAKAGE_COLUMNS + SURVEY_DESIGN_COLUMNS + [TARGET_IMC, TARGET_MENTAL_HEALTH]
+
+
+def get_mental_health_target_col(config: dict[str, Any] | None = None) -> str:
+    """Devuelve la columna QN activa para el target de salud mental."""
+    cfg = config if config is not None else load_config()
+    key = str(
+        cfg.get("data", {}).get(
+            "mental_health_target",
+            DEFAULT_MENTAL_HEALTH_TARGET_KEY,
+        )
+    ).lower()
+    return MENTAL_HEALTH_TARGET_MAP.get(key, MENTAL_HEALTH_PRIMARY_COL)
