@@ -71,7 +71,7 @@ fras/
 | Tarea | Target | Modelos | Métricas |
 |-------|--------|---------|----------|
 | A — Regresión IMC | `IMC = Q5 / Q4²` | Linear Regression, Random Forest | RMSE, R², residuos |
-| B — Clasificación | `Riesgo_Salud_Mental` (QN25) | Logistic Regression, RF+SMOTE, XGBoost | F1 minoritaria, AUC-ROC |
+| B — Clasificación | `Riesgo_Salud_Mental` (QN24 principal, QN22 alternativo) | Logistic Regression, RF+SMOTE, XGBoost | F1 minoritaria, AUC-ROC |
 
 ## Informe IEEE
 
@@ -97,7 +97,8 @@ ruff check src tests
 1. **Centinela SPSS** (`1.79e+308`) → `np.nan` al cargar
 2. **Sin data leakage**: Q4, Q5 excluidos de features de regresión IMC
 3. **QN vs Q**: se usan recodificaciones QN para evitar colinealidad
-4. **Desbalance**: `class_weight='balanced'` + SMOTE; F1 minoritaria como métrica principal
+4. **Target salud mental**: QN24 (ideación suicida) principal; QN22 (soledad) como escenario alternativo
+5. **Desbalance**: `class_weight='balanced'` + SMOTE; F1 minoritaria como métrica principal
 
 ## Licencia
 
