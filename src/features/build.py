@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import RobustScaler
 
 from config import (
@@ -30,7 +31,7 @@ REGRESSION_FEATURE_COLUMNS = [
     "QN9",
     "QN10",
     "QN11",
-    "QN12",
+    "QN12", 
     "QN13",
     "QN14",
     "QN15",
@@ -137,7 +138,7 @@ def get_feature_columns(
         df: DataFrame preprocesado.
         task: 'regression' para IMC o 'classification' para riesgo mental.
 
-    Returns:
+    Returns:    
         Lista de nombres de columnas disponibles en el DataFrame.
     """
     excluded = set(get_excluded_feature_columns())
@@ -171,6 +172,11 @@ def build_preprocessor(feature_columns: list[str]) -> ColumnTransformer:
     estandarizadas por la OMS, evitando duplicar información con las Q originales
     y reduciendo dimensionalidad frente a One-Hot Encoding masivo.
     """
+
+    #Identifica si Q1 o Q2 están en las columnas para tratarlas como categóricas
+    categorical_cols = [c for c in ["Q1", "Q2"] if c in feature_columns]
+    numeric_cols = [c for c in feature_columns if c not in categorical_cols]
+
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
@@ -178,9 +184,17 @@ def build_preprocessor(feature_columns: list[str]) -> ColumnTransformer:
         ]
     )
 
+    categorical_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="most_frequent")), # Imputación por moda
+            ("onehot", OneHotEncoder(handle_unknown="ignore", drop="first")), # Codificación
+        ]
+    )
+
     return ColumnTransformer(
         transformers=[
-            ("num", numeric_pipeline, feature_columns),
+            ("num", numeric_pipeline, numeric_cols),
+            ("cat", categorical_pipeline, categorical_cols), # <-- Procesa Q1 y Q2 con One-Hot
         ],
         remainder="drop",
     )
