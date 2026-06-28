@@ -8,10 +8,11 @@ import pandas as pd
 from config import (
     IMC_MAX,
     IMC_MIN,
-    MENTAL_HEALTH_FALLBACK_COL,
-    MENTAL_HEALTH_PRIMARY_COL,
+    MENTAL_HEALTH_ALTERNATIVE_COL,
     TARGET_IMC,
     TARGET_MENTAL_HEALTH,
+    get_mental_health_target_col,
+    load_config,
 )
 from data.load import replace_missing_sentinel
 
@@ -30,18 +31,21 @@ def compute_bmi(weight_kg: pd.Series, height_m: pd.Series) -> pd.Series:
 
 def build_mental_health_target(
     df: pd.DataFrame,
-    primary_col: str = MENTAL_HEALTH_PRIMARY_COL,
-    fallback_col: str = MENTAL_HEALTH_FALLBACK_COL,
+    primary_col: str | None = None,
+    fallback_col: str = MENTAL_HEALTH_ALTERNATIVE_COL,
 ) -> pd.Series:
     """
     Construye la variable binaria Riesgo_Salud_Mental.
 
-    GSHS QN25: ¿Consideró seriamente intentar suicidarse? (1=Sí, 2=No)
-    Fallback QN21: ¿Se sintió solo/a la mayor parte del tiempo? (1=Sí, 2=No)
+    GSHS QN24: ¿Consideró suicidarse en los últimos 12 meses? (1=Sí, 2=No)
+    Alternativa QN22: ¿Se sintió solo/a la mayor parte del tiempo? (1=Sí, 2=No)
 
     Returns:
         Serie binaria: 1 = riesgo, 0 = sin riesgo, NaN = sin respuesta válida.
     """
+    if primary_col is None:
+        primary_col = get_mental_health_target_col(load_config())
+
     source_col = primary_col if primary_col in df.columns else fallback_col
     if source_col not in df.columns:
         raise ValueError(
@@ -62,7 +66,7 @@ def preprocess_data(df: pd.DataFrame) -> pd.DataFrame:
 
     - Reemplaza centinela de nulos (defensivo).
     - Calcula IMC a partir de Q5 (peso) y Q4 (estatura).
-    - Crea Riesgo_Salud_Mental a partir de QN25 (ideación suicida).
+    - Crea Riesgo_Salud_Mental a partir de QN24 (ideación suicida) o QN22 (soledad).
     - Filtra IMC fuera de rango clínico razonable.
 
     Args:

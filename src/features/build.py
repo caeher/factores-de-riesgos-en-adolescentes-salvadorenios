@@ -12,55 +12,21 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.preprocessing import RobustScaler
 
 from config import (
+    MENTAL_HEALTH_CONSTRUCT,
     TARGET_IMC,
     TARGET_MENTAL_HEALTH,
     get_excluded_feature_columns,
-    get_qn_columns,
+    get_mental_health_target_col,
+    load_config,
 )
 
 TaskType = Literal["regression", "classification"]
 
-# Features de comportamiento para regresión IMC (sin peso/altura).
-# QN de alimentación, actividad física, tiempo en pantalla y demografía básica.
-REGRESSION_FEATURE_COLUMNS = [
-    "Q1",  # edad
-    "Q2",  # sexo
-    "QN6",
-    "QN7",
-    "QN8",
-    "QN9",
-    "QN10",
-    "QN11",
-    "QN12", 
-    "QN13",
-    "QN14",
-    "QN15",
-    "QN34",
-    "QN35",
-    "QN36",
-    "QN37",
-    "QN38",
-    "QN39",
-    "QN40",
-    "QN44",
-    "QN45",
-    "QN46",
-    "QN47",
-    "QN48",
-    "QN49",
-    "QN50",
-    "QN51",
-    "QN52",
-    "qnfrvgg",
-    "qnpa7g",
-    "qnpe5g",
-]
+# Demografía
+DEMOGRAPHIC_FEATURES = ["Q1", "Q2"]
 
-# Factores de protección/riesgo para clasificación de salud mental.
-# Excluye variables del propio constructo de salud mental (QN21-QN27).
-CLASSIFICATION_FEATURE_COLUMNS = [
-    "Q1",
-    "Q2",
+# Alimentación, higiene y actividad física (sin peso/altura)
+BEHAVIOR_FEATURES = [
     "QN6",
     "QN7",
     "QN8",
@@ -70,58 +36,54 @@ CLASSIFICATION_FEATURE_COLUMNS = [
     "QN12",
     "QN13",
     "QN14",
-    "QN15",
-    "QN16",
-    "QN17",
-    "QN18",
-    "QN19",
-    "QN20",
-    "QN22",
-    "QN23",
-    "QN24",
-    "QN28",
-    "QN29",
-    "QN30",
-    "QN31",
-    "QN32",
-    "QN33",
-    "QN34",
-    "QN35",
-    "QN36",
-    "QN37",
-    "QN38",
-    "QN39",
-    "QN40",
-    "QN44",
-    "QN45",
-    "QN46",
-    "QN47",
-    "QN48",
     "QN49",
     "QN50",
     "QN51",
     "QN52",
-    "QN53",
-    "QN54",
-    "QN55",
-    "QN56",
-    "QN57",
-    "QN58",
-    "qnc1g",
-    "qnc2g",
+    "qnfrvgg",
+    "qnpa7g",
+    "qnpe5g",
 ]
 
-# Variables de salud mental que no deben usarse como predictores.
-MENTAL_HEALTH_LEAKAGE = [
-    "QN21",
-    "QN25",
-    "QN26",
-    "QN27",
-    "Q21",
-    "Q25",
-    "Q26",
-    "Q27",
-]
+# Alcohol y drogas
+SUBSTANCE_FEATURES = ["QN34", "QN35", "QN36", "QN37", "QN38", "QN39", "QN40"]
+
+# Violencia, bullying y lesiones (no salud mental)
+VIOLENCE_FEATURES = ["QN15", "QN16", "QN17", "QN18", "QN19", "QN20", "QN21"]
+
+# Factores de protección y supervisión parental
+PROTECTIVE_FEATURES = ["QN53", "QN54", "QN55", "QN56", "QN57", "QN58"]
+
+# Comportamiento sexual (riesgo adicional, no leakage)
+SEXUAL_BEHAVIOR_FEATURES = ["QN44", "QN45", "QN46", "QN47", "QN48", "qnc1g"]
+
+# Regresión IMC: comportamiento sin peso/altura ni derivadas de peso.
+REGRESSION_FEATURE_COLUMNS = (
+    DEMOGRAPHIC_FEATURES
+    + BEHAVIOR_FEATURES
+    + SUBSTANCE_FEATURES
+    + VIOLENCE_FEATURES
+    + PROTECTIVE_FEATURES
+)
+
+# Clasificación: factores de riesgo/protección sin constructo de salud mental.
+CLASSIFICATION_FEATURE_COLUMNS = (
+    DEMOGRAPHIC_FEATURES
+    + BEHAVIOR_FEATURES
+    + SUBSTANCE_FEATURES
+    + VIOLENCE_FEATURES
+    + PROTECTIVE_FEATURES
+    + SEXUAL_BEHAVIOR_FEATURES
+)
+
+
+def _get_classification_exclusions() -> set[str]:
+    """Columnas excluidas de features de clasificación (leakage + target activo)."""
+    excluded = set(get_excluded_feature_columns())
+    excluded.update(MENTAL_HEALTH_CONSTRUCT)
+    target_col = get_mental_health_target_col(load_config())
+    excluded.add(target_col)
+    return excluded
 
 
 def get_feature_columns(
@@ -138,42 +100,30 @@ def get_feature_columns(
         df: DataFrame preprocesado.
         task: 'regression' para IMC o 'classification' para riesgo mental.
 
-    Returns:    
+    Returns:
         Lista de nombres de columnas disponibles en el DataFrame.
     """
     excluded = set(get_excluded_feature_columns())
     if task == "classification":
-        excluded.update(MENTAL_HEALTH_LEAKAGE)
+        excluded = _get_classification_exclusions()
 
-    if task == "regression":
-        candidates = REGRESSION_FEATURE_COLUMNS
-    else:
-        candidates = CLASSIFICATION_FEATURE_COLUMNS
+    candidates = (
+        REGRESSION_FEATURE_COLUMNS
+        if task == "regression"
+        else CLASSIFICATION_FEATURE_COLUMNS
+    )
 
-    available = [col for col in candidates if col in df.columns and col not in excluded]
-
-    # Incluir QN adicionales presentes en el dataset que no estén excluidas.
-    if task == "regression":
-        extra_qn = [
-            c
-            for c in get_qn_columns()
-            if c in df.columns and c not in excluded and c not in available
-        ]
-        available.extend(extra_qn[:5])  # límite conservador
-
-    return available
+    return [col for col in candidates if col in df.columns and col not in excluded]
 
 
 def build_preprocessor(feature_columns: list[str]) -> ColumnTransformer:
     """
-    Construye el preprocesador: imputación por mediana + RobustScaler.
+    Construye el preprocesador: imputación + escalado / One-Hot.
 
     Justificación Q vs QN: las QN son recodificaciones binarias/ordinales
     estandarizadas por la OMS, evitando duplicar información con las Q originales
     y reduciendo dimensionalidad frente a One-Hot Encoding masivo.
     """
-
-    #Identifica si Q1 o Q2 están en las columnas para tratarlas como categóricas
     categorical_cols = [c for c in ["Q1", "Q2"] if c in feature_columns]
     numeric_cols = [c for c in feature_columns if c not in categorical_cols]
 
@@ -186,15 +136,15 @@ def build_preprocessor(feature_columns: list[str]) -> ColumnTransformer:
 
     categorical_pipeline = Pipeline(
         steps=[
-            ("imputer", SimpleImputer(strategy="most_frequent")), # Imputación por moda
-            ("onehot", OneHotEncoder(handle_unknown="ignore", drop="first")), # Codificación
+            ("imputer", SimpleImputer(strategy="most_frequent")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore", drop="first")),
         ]
     )
 
     return ColumnTransformer(
         transformers=[
             ("num", numeric_pipeline, numeric_cols),
-            ("cat", categorical_pipeline, categorical_cols), # <-- Procesa Q1 y Q2 con One-Hot
+            ("cat", categorical_pipeline, categorical_cols),
         ],
         remainder="drop",
     )
